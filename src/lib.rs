@@ -1,27 +1,28 @@
-use std::collections::HashMap;
+use wasm_bindgen::prelude::*;
 
 // pub struct Cell;
 
-#[derive(Debug, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Cell {
-    Alive,
-    Dead,
+    Alive = 1,
+    Dead = 0,
 }
 
+#[wasm_bindgen(js_name = "Game")]
 #[derive(Debug)]
 pub struct Game {
-    cols: usize,
-    rows: usize,
-    // TODO: Use HashSet in order to use less allocations
-    board: HashMap<(usize, usize), Cell>,
+    pub cols: usize,
+    pub rows: usize,
+    board: Vec<Cell>
 }
 
+#[wasm_bindgen(js_name = "Game")]
 impl Game {
     pub fn new(cols: usize, rows: usize) -> Self {
-        let mut board = HashMap::with_capacity(cols * rows);
-        for y in 0..rows {
-            for x in 0..cols {
-                board.insert((x, y), Cell::Dead);
+        let mut board = Vec::with_capacity(cols * rows);
+        for _ in 0..rows {
+            for _ in 0..cols {
+                board.push(Cell::Dead);
             }
         }
 
@@ -29,88 +30,93 @@ impl Game {
     }
 
     pub fn insert(&mut self, col: usize, row: usize) {
-        self.board.insert((col, row), Cell::Alive);
+        self.board[row * self.cols + col] = Cell::Alive;
     }
 
-    fn num_moore_neighbor(&self, pos: (usize, usize)) -> u32 {
-        let mut count = 0;
+    pub fn get(&self, col: usize, row: usize) -> isize {
+        match self.board.get(row * self.cols + col).unwrap_or(&Cell::Dead) {
+            Cell::Alive => 1,
+            Cell::Dead => 0,
+        }
+    }
+
+    fn num_moore_neighbor(&self, pos: usize) -> u32 {
+        // let mut count = 0;
+        let map_x: isize = (pos % self.cols) as isize;
+        let map_y: isize = ((pos - map_x as usize) / self.rows) as isize;
+
+        println!("looking at {}, {} neighbors", map_x, map_y);
 
         // Count alive cells (x) around 'o', where o is `pos`
         // x x x
         // x o x
         // x x x
         // if an x is at a negative index, skip to next index
+        let neighbors = vec![
+            (map_x - 1, map_y - 1), (map_x, map_y - 1), (map_x + 1, map_y - 1),
+            (map_x - 1, map_y),                         (map_x + 1, map_y),
+            (map_x - 1, map_y + 1), (map_x, map_y + 1), (map_x + 1, map_y + 1),
+        ];
+        let count = neighbors.iter().fold(0, |acc, pos| {
+            if pos.1 < 0 || pos.0 < 0 || pos.0 as usize >= self.cols || pos.1 as usize >= self.rows { return acc }
 
-        // TODO: refactor
-        for x in -1..=1 {
-            let nx = (pos.0 as isize) + x;
-            if nx < 0 { continue; }
-            for y in -1..=1 {
-                if x == 0 && y == 0 { continue; }
-                let ny = (pos.1 as isize) + y;
-                if ny < 0 { continue; }
-                if let Some(cell) = self.board.get(&(nx as usize, ny as usize)) {
-                    if let Cell::Alive = cell {
-                        count += 1;
-                    }
+            if let Some(cell) = self.board.get(pos.1 as usize * self.cols + pos.0 as usize) {
+                if &Cell::Alive == cell {
+                    println!("found alive at {}", pos.1 as usize * self.cols + pos.0 as usize);
+                    self.print();
+                    println!("");
+                    return acc + 1
                 }
             }
-        }
-
+            return acc
+        });
+        println!("count is {}", count);
         count
     }
 
     pub fn tick(&mut self) {
-        self.board = self.board.iter().map(|(pos, cell)| {
-            let num_neighbors = self.num_moore_neighbor(*pos);
-            let new_state = match (cell, num_neighbors) {
+        self.board = self.board.clone().iter().enumerate().map(|(pos, cell)| {
+            let num_neighbors = self.num_moore_neighbor(pos);
+            match (cell, num_neighbors) {
                 (Cell::Alive, 2..=3) => Cell::Alive, // Stayin' Alive
                 (Cell::Dead, 3) => Cell::Alive, // Three makes life
                 _ => Cell::Dead,
-            };
-
-            (*pos, new_state)
+            }
         }).collect();
     }
 
-    // TODO: remove
     pub fn print(&self) {
         for y in 0..self.rows {
             for x in 0..self.cols {
-                if let Some(cell) = self.board.get(&(x, y)) {
-                    match cell {
-                        Cell::Alive => print!("*"),
-                        Cell::Dead => print!("."),
-                    }
-                }
+                print!("{}", if self.get(x, y) == 1 { "*" } else { "." });
             }
             println!("");
         }
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn it_works() {
-        let mut game = Game::new(20, 20);
+        let mut game = Game::new(3,3);
         game.insert(0, 1);
         game.insert(1, 1);
         game.insert(2, 1);
         // blinker horizontal
-        assert_eq!(game.board.get(&(0,1)), Some(&Cell::Alive));
-        assert_eq!(game.board.get(&(1,1)), Some(&Cell::Alive));
-        assert_eq!(game.board.get(&(2,1)), Some(&Cell::Alive));
+        assert_eq!(game.get(0,1), 1);
+        assert_eq!(game.get(1,1), 1);
+        assert_eq!(game.get(2,1), 1);
+        println!("{:?}", game.board);
         game.tick();
+        println!("{:?}", game.board);
         // blinker vertical
-        assert_eq!(game.board.get(&(1,1)), Some(&Cell::Alive));
-        assert_eq!(game.board.get(&(1,0)), Some(&Cell::Alive));
-        assert_eq!(game.board.get(&(1,2)), Some(&Cell::Alive));
+        assert_eq!(game.get(1,1), 1);
+        assert_eq!(game.get(1,0), 1);
+        assert_eq!(game.get(1,2), 1);
         // check so that horizontal 0 & 2 are dead
-        assert_eq!(game.board.get(&(0,1)), Some(&Cell::Dead));
-        assert_eq!(game.board.get(&(2,1)), Some(&Cell::Dead));
+        assert_eq!(game.get(0,1), 0);
+        assert_eq!(game.get(2,1), 0);
     }
 }
